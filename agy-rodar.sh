@@ -9,7 +9,7 @@
 # - Cota: se a saída tiver "Individual quota reached", tenta a próxima conta. O pedido ganha um aviso
 #   de retomada, porque a conta anterior pode ter deixado alterações pela metade no disco.
 # - Revezamento: cada chamada começa na conta seguinte à da chamada anterior.
-# - Sem agy-conta (Windows ou Linux): roda o agy direto, numa conta só.
+# - Sem agy-conta (Windows fora do WSL): roda o agy direto, numa conta só.
 #
 # Saída: código do agy; 75 quando todas as contas estão sem cota ou sem o modelo.
 set -uo pipefail
@@ -28,7 +28,7 @@ done
 
 AQUI=$(cd "$(dirname "$0")" && pwd)
 CONTA_BIN=${AGY_CONTA_BIN:-$(command -v agy-conta || true)}
-if [ -z "$CONTA_BIN" ] && command -v sandbox-exec >/dev/null && [ -x "$AQUI/agy-conta.sh" ]; then
+if [ -z "$CONTA_BIN" ] && [ -x "$AQUI/agy-conta.sh" ] && case $(uname -s) in Darwin|Linux) true ;; *) false ;; esac; then
   CONTA_BIN=$AQUI/agy-conta.sh
 fi
 if [ -z "$CONTA_BIN" ]; then

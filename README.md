@@ -1,6 +1,6 @@
 # revezamento-agy
 
-Roda o [Antigravity CLI](https://antigravity.google) (`agy`) em várias contas Google **ao mesmo tempo** no Mac e reveza entre elas sozinho. Quando uma conta fica sem cota, o pedido passa para a próxima com um aviso para continuar de onde parou.
+Roda o [Antigravity CLI](https://antigravity.google) (`agy`) em várias contas Google **ao mesmo tempo** e reveza entre elas sozinho. Quando uma conta fica sem cota, o pedido passa para a próxima com um aviso para continuar de onde parou.
 
 Serve para quem usa o `agy` como "mão de obra" de outro agente (Claude Code, Codex, um script) e quer espalhar o consumo pelas cotas de várias contas em vez de esgotar uma só.
 
@@ -11,7 +11,7 @@ você / Claude Code
    agy-rodar.sh ──► escolhe a próxima conta, confere se ela tem o modelo
         │
         ▼
-   agy-conta.sh ──► roda o agy com o HOME daquela conta, num sandbox
+   agy-conta.sh ──► roda o agy com o HOME daquela conta, isolado
         │
         ├─ terminou ─────────────► devolve a saída
         └─ "Individual quota reached" ─► tenta a próxima conta
@@ -25,23 +25,45 @@ Dois scripts em Bash, sem dependência além do próprio `agy`.
 | `agy-rodar.sh` | Escolhe a conta, pula a que não tem o modelo e a que está sem cota. |
 | `teste-agy-rodar.sh` | Testa o revezamento com um agy falso (não gasta cota). |
 
-## Por que não basta trocar o HOME
+## Como as contas ficam separadas
 
-O agy guarda o login no **Keychain do macOS**, num item único por usuário. Rodar `HOME=/outra/pasta agy` continua usando a mesma conta, e duas execuções em paralelo brigam pelo mesmo token.
+Cada conta tem uma pasta própria (`~/agy-<nome>`) que vira o HOME do agy quando ela roda. O token de login fica em `<HOME>/.gemini/antigravity-cli/antigravity-oauth-token`.
+
+**Linux (e Windows pelo WSL):** o agy já guarda o token nesse arquivo, então trocar o HOME basta. O script ainda desliga o dbus na chamada, para o agy nunca cair no chaveiro do sistema.
+
+**macOS:** trocar só o HOME não basta, e é por isso que existe o sandbox. O agy guarda o login no **Keychain do macOS**, num item único por usuário. Rodar `HOME=/outra/pasta agy` continua usando a mesma conta, e duas execuções em paralelo brigam pelo mesmo token.
 
 Quando não consegue falar com o Keychain, o agy cai para um arquivo dentro do HOME (`~/.gemini/antigravity-cli/antigravity-oauth-token`). O `agy-conta.sh` usa isso a seu favor: roda o agy dentro do `sandbox-exec` com o `/usr/bin/security` proibido. Assim cada conta lê e renova o token só no arquivo do próprio HOME, e as contas ficam isoladas de verdade.
 
 ## Requisitos
 
-- macOS (o isolamento depende do `sandbox-exec`, que vem no sistema).
+- macOS, Linux ou Windows com WSL.
 - Antigravity CLI instalado.
 - Uma ou mais contas Google com acesso ao Antigravity.
 
-No Linux e no Windows o `agy-rodar.sh` ainda funciona, mas roda o agy direto numa conta só.
+| Sistema | Como roda |
+|---|---|
+| macOS | `sandbox-exec` (já vem no sistema) |
+| Linux | troca de HOME, sem nada extra |
+| Windows | dentro do WSL, igual ao Linux |
+
+No Windows fora do WSL (PowerShell, Git Bash) o `agy-rodar.sh` roda o agy direto numa conta só, sem revezar. O motivo: lá o login fica no Gerenciador de Credenciais, que é um só por usuário e não dá para isolar por fora.
+
+### Windows: prepare o WSL primeiro
+
+No PowerShell como administrador:
+
+```powershell
+wsl --install -d Ubuntu
+```
+
+Reinicie, abra o app **Ubuntu** e siga os passos abaixo dentro dele. Tudo dali em diante é igual ao Linux. O agy do WSL é separado do agy que porventura esteja instalado no Windows.
 
 ## Instalação passo a passo
 
 ### 1. Instale o agy
+
+No macOS, Linux ou WSL:
 
 ```bash
 curl -fsSL https://antigravity.google/cli/install.sh | bash
@@ -83,7 +105,7 @@ A conta `principal` é a que usa o seu HOME normal.
 agy-conta principal --logar
 ```
 
-Faça isso mesmo se você já usa o agy: o login antigo fica no Keychain, e aqui ele precisa ser gravado no arquivo do HOME. Abre o agy interativo. Faça o login pelo navegador e saia (`/quit` ou Ctrl+C).
+No Mac, faça isso mesmo se você já usa o agy: o login antigo fica no Keychain, e aqui ele precisa ser gravado no arquivo do HOME. No Linux, se o agy já está logado, pode pular. Abre o agy interativo. Faça o login pelo navegador e saia (`/quit` ou Ctrl+C).
 
 ### 5. Logue as outras contas
 
@@ -98,6 +120,8 @@ agy-conta pessoal --logar
 ```
 
 Em cada uma, faça login com uma conta Google **diferente**. A pasta é criada sozinha.
+
+Se o navegador não abrir sozinho (comum no WSL e em servidor), o agy imprime o link de login no terminal: abra ele manualmente.
 
 ### 6. Confira se cada conta é quem deveria ser
 
@@ -198,8 +222,11 @@ Essa conta não tem aquele modelo. Ela é pulada; tudo certo se outra tiver. Par
 **Saiu com código 75**
 Todas as contas estão sem cota ou sem o modelo. A cota costuma voltar em algumas horas.
 
-**Script filho do agy precisa do Keychain (ex: 1Password CLI)**
-Dentro do sandbox ninguém roda `/usr/bin/security`, nem os processos que o agy abre. Passe o segredo já pronto no ambiente antes de chamar (ex: `OP_SERVICE_ACCOUNT_TOKEN`).
+**Script filho do agy precisa do chaveiro (ex: 1Password CLI)**
+No Mac, dentro do sandbox ninguém roda `/usr/bin/security`, nem os processos que o agy abre. No Linux o dbus vai desligado, então quem depende do chaveiro do sistema também falha. Passe o segredo já pronto no ambiente antes de chamar (ex: `OP_SERVICE_ACCOUNT_TOKEN`).
+
+**`sistema não suportado: no Windows, rode dentro do WSL`**
+Você está no PowerShell ou no Git Bash. Abra o Ubuntu do WSL e rode por lá.
 
 **O run caiu no meio (cota, rede)**
 O que foi commitado fica. O resto está no disco. Rode de novo pelo `agy-rodar`, que manda a próxima conta conferir o `git diff` e continuar.
@@ -211,6 +238,10 @@ rm ~/.local/bin/agy-conta ~/.local/bin/agy-rodar
 ```
 
 As pastas `~/agy-<nome>` guardam o login de cada conta. Apague só se não for mais usar a conta.
+
+## Contribuir
+
+Achou bug ou quer suporte a outro caso? Abra uma [issue](https://github.com/gabrielkashimarki/revezamento-agy/issues). Para mandar código, faça um fork, crie uma branch e abra um pull request. Antes, rode `bash teste-agy-rodar.sh` e confira que imprime `OK`.
 
 ## Licença
 
